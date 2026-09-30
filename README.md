@@ -1,30 +1,20 @@
-# Premier League Predictor
+# Touchline — Dashboard Sepak Bola
 
-Aplikasi prediksi pertandingan Liga Inggris menggunakan **Machine Learning (RandomForest)** dan tampilan web **Django**.
+Dashboard analisis sepak bola interaktif berbasis Streamlit dan OpenLigaDB API.
+
+## Fitur
+
+- Filter kompetisi dan musim dari sidebar.
+- Ringkasan KPI: pertandingan selesai, total gol, rata-rata gol, dan kemenangan kandang.
+- Grafik hasil pertandingan dan tren gol per pekan.
+- Halaman jadwal/hasil dengan filter tim, pekan, dan status.
+- Klasemen serta grafik gol per tim.
+- Daftar pencetak gol.
+- Cache API 15 menit, tombol muat ulang, dan snapshot Premier League sebagai fallback bila API sedang tidak tersedia.
+- Waktu pertandingan ditampilkan dalam WIB.
 
 ## Struktur
 
-- `prediction/` — modul prediksi skor & klasemen (Python + Tkinter GUI)
-- `premier_project/` — aplikasi web Django (`manage.py`, `db.sqlite3`)
-
-## Fitur
-- Prediksi skor kandang & tandang
-- Perhitungan klasemen otomatis
-- Antarmuka grafis (Tkinter) + web (Django)
-
-## Quick Start
-
-```bash
-# 1. Prediction module
-pip install -r prediction/requirements.txt
-python prediction/src/py/main.py
-
-# 2. Django web
-cd premier_project
-pip install django pandas scikit-learn
-python manage.py runserver
-```
-
-## Catatan
-- Data prediksi disimpan di `prediction/data/`
-- Database SQLite sudah ada di `premier_project/db.sqlite3`
+- `app.py` — aplikasi Streamlit
+- `data/` — snapshot Premier League 2026/27 untuk fallback offline
+- `requirements.txt` — dependensi
