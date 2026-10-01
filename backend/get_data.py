@@ -7,13 +7,19 @@ or manually entered datasets are read or written.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
 import threading
 import time
+import unicodedata
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
+
+from backend.competition_catalog import TOP_COMPETITIONS
 
 OPENLIGADB_BASE = "https://api.openligadb.de"
 JAKARTA = ZoneInfo("Asia/Jakarta")
@@ -48,19 +54,51 @@ def _cached_normalized(key: str, loader, refresh: bool = False):
     return normalized
 
 
+def _compact(value: str) -> str:
+    value = str(value).replace("ß", "ss").replace("ẞ", "SS")
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return "".join(character.lower() for character in value if character.isalnum())
+
+
 def _normalize_leagues(rows: list[dict]) -> list[dict]:
-    clean = []
+    """Keep only curated top competitions that are actually in the API result."""
+    selected: dict[str, tuple[int, dict]] = {}
     for row in rows:
         sport = row.get("sport") or {}
-        clean.append(
-            {
-                "leagueShortcut": row.get("leagueShortcut", ""),
-                "leagueName": row.get("leagueName", "Kompetisi"),
-                "leagueSeason": row.get("leagueSeason"),
-                "sport": sport.get("sportName", "Fußball") if isinstance(sport, dict) else str(sport),
-            }
-        )
-    return clean
+        sport_name = sport.get("sportName", "") if isinstance(sport, dict) else str(sport)
+        if sport_name and "fussball" not in _compact(sport_name) and "football" not in _compact(sport_name):
+            continue
+
+        shortcut = str(row.get("leagueShortcut", "")).strip()
+        shortcut_key = shortcut.casefold()
+        name_key = _compact(row.get("leagueName", ""))
+        matched = None
+        alias_rank = 999
+        for rule in TOP_COMPETITIONS:
+            aliases = [code.casefold() for code in rule["codes"]]
+            code_match = shortcut_key in aliases
+            name_match = any(_compact(key) in name_key for key in rule["name_keys"])
+            if code_match or name_match:
+                matched = rule
+                alias_rank = aliases.index(shortcut_key) if code_match else len(aliases)
+                break
+        if matched is None:
+            continue
+
+        normalized = {
+            "competitionId": matched["id"],
+            "leagueShortcut": shortcut,
+            "leagueName": matched["name"],
+            "leagueSeason": row.get("leagueSeason"),
+            "sport": "Fußball",
+            "priority": matched["rank"],
+        }
+        current = selected.get(matched["id"])
+        if current is None or alias_rank < current[0]:
+            selected[matched["id"]] = (alias_rank, normalized)
+
+    clean = [value[1] for value in selected.values()]
+    return sorted(clean, key=lambda row: (row["priority"], row["leagueName"]))
 
 
 def get_leagues(season: int, refresh: bool = False) -> list[dict]:
@@ -113,6 +151,8 @@ def _normalize_matches(matches: list[dict]) -> list[dict]:
                 "round_id": (match.get("group") or {}).get("groupOrderID"),
                 "home": home.get("teamName", "Tim kandang"),
                 "away": away.get("teamName", "Tim tandang"),
+                "home_logo_url": _team_logo_url(home.get("teamIconUrl")),
+                "away_logo_url": _team_logo_url(away.get("teamIconUrl")),
                 "home_goals": home_score,
                 "away_goals": away_score,
                 "finished": bool(match.get("matchIsFinished")),
@@ -129,6 +169,50 @@ def _to_int(value, default=0):
         return default
 
 
+_ALLOWED_LOGO_HOSTS = {
+    "upload.wikimedia.org",
+    "img.uefa.com",
+    "i.imgur.com",
+    "assets.dfb.de",
+    "mediadb.kicker.de",
+    "s.hs-data.com",
+    "ssl.gstatic.com",
+    "www.bundesliga-reisefuehrer.de",
+    "preview.redd.it",
+}
+
+
+def _team_logo_url(value, allow_embedded: bool = False) -> str | None:
+    """Prefer Wikimedia/approved API hosts; accept small API-inline icons as last resort."""
+    if not isinstance(value, str):
+        return None
+    if allow_embedded and value.startswith("data:image/") and len(value) <= 300_000:
+        try:
+            header, encoded = value.split(",", 1)
+            media_type = header[5:].split(";", 1)[0].lower()
+            if media_type not in {"image/png", "image/jpeg", "image/webp"} or "base64" not in header:
+                return None
+            decoded = base64.b64decode(encoded, validate=True)
+            if decoded and len(decoded) <= 200_000:
+                return f"data:{media_type};base64,{encoded}"
+        except (ValueError, binascii.Error):
+            return None
+    if not value.startswith(("http://", "https://")):
+        return None
+    parsed = urlparse(value)
+    if parsed.hostname not in _ALLOWED_LOGO_HOSTS or not parsed.path:
+        return None
+    # Preserve only the signed/display query parameters Reddit needs; other
+    # API-provided image URLs are normalized to a clean path.
+    query = ""
+    if parsed.hostname == "preview.redd.it":
+        allowed_query = {"width", "height", "crop", "format", "auto", "s"}
+        safe_params = [(key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=False) if key in allowed_query]
+        query = urlencode(safe_params)
+    suffix = f"?{query}" if query else ""
+    return f"https://{parsed.hostname}{parsed.path}{suffix}"
+
+
 def _normalize_standings(rows: list[dict]) -> list[dict]:
     clean = []
     for row in rows:
@@ -137,6 +221,7 @@ def _normalize_standings(rows: list[dict]) -> list[dict]:
                 "team_id": row.get("teamInfoId"),
                 "team": row.get("teamName", "Tim"),
                 "short_name": row.get("shortName") or row.get("teamName", "Tim"),
+                "logo_url": _team_logo_url(row.get("teamIconUrl"), allow_embedded=True),
                 "played": _to_int(row.get("matches")),
                 "won": _to_int(row.get("won")),
                 "draw": _to_int(row.get("draw")),
