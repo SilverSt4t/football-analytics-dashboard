@@ -680,7 +680,7 @@ elif page == "Klasemen":
             }
             selected_metric = st.selectbox("Pilih metrik", list(metric_labels), key="standings_metric")
             metric_col = metric_labels[selected_metric]
-            team_chart = standings_df.nlargest(10, metric_col).sort_values(metric_col, ascending=True)
+            team_chart = standings_df.nlargest(10, metric_col).sort_values(metric_col, ascending=False).copy()
             render_bar_list(team_chart, "short_name", metric_col)
 
 # -----------------------------------------------------------------------------
@@ -702,7 +702,7 @@ elif page == "Pencetak gol":
             st.subheader("1 · Sorotan pencetak gol")
             st.caption("Ringkasan kompetisi berdasarkan data pencetak gol yang tersedia.")
             p1, p2, p3 = st.columns(3)
-            p1.metric("Pemimpin daftar", str(leader[scorer_name_col]))
+            p1.metric("Nama Pemain", str(leader[scorer_name_col]))
             p2.metric("Gol terbanyak", int(leader[scorer_goals_col]))
             p3.metric("Pemain terdaftar", len(all_scorers))
             top_count = st.selectbox(
@@ -732,7 +732,7 @@ elif page == "Pencetak gol":
                 selected_player_index = st.selectbox(
                     "Pilih pemain",
                     player_indexes,
-                    format_func=lambda index: f"{all_scorers.iloc[index][scorer_name_col]} · {int(all_scorers.iloc[index][scorer_goals_col])} gol",
+                    format_func=lambda index: f"{all_scorers.iloc[index][scorer_name_col]}",
                     key="player_stats_choice",
                 )
                 selected_player = all_scorers.iloc[selected_player_index]
@@ -743,12 +743,11 @@ elif page == "Pencetak gol":
                 id_label = str(player_id) if pd.notna(player_id) else "tidak tersedia"
                 st.markdown(
                     f'<div class="player-profile">{player_avatar_html(selected_name, "lg")}<div class="player-profile-main">'
-                    f'<span class="player-profile-name">{escape(selected_name)}</span>'
-                    f'<span class="player-id-pill">ID pemain OpenLigaDB · {escape(id_label)}</span></div></div>',
+                    f'<span class="player-profile-name">{escape(selected_name)}</span>',
                     unsafe_allow_html=True,
                 )
                 s1, s2, s3 = st.columns(3)
-                s1.metric("Peringkat daftar API", f"#{selected_player_index + 1}")
+                s1.metric("Peringkat", f"#{selected_player_index + 1}")
                 s2.metric("Gol", selected_goals)
                 s3.metric("Selisih dari pemimpin", f"{selected_goals - leader_goals:+d} gol")
 
@@ -854,6 +853,6 @@ else:
 # -----------------------------------------------------------------------------
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown(
-    '<div class="sidebar-note">Sumber: <a href="https://www.openligadb.de/" target="_blank" style="color:#8cf28a">OpenLigaDB</a> · Data komunitas, disajikan untuk eksplorasi dan pembelajaran. Cakupan statistik berbeda per kompetisi.</div>',
+    '<div class="sidebar-note">Sumber: <a href="https://www.openligadb.de/" target="_blank" style="color:#8cf28a">OpenLigaDB</a>.</div>',
     unsafe_allow_html=True,
 )
